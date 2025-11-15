@@ -169,3 +169,41 @@ resource "aws_security_group" "rds_sg" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 }
+  # -----------------
+# RDS Subnet Group
+# -----------------
+
+resource "aws_db_subnet_group" "rds_subnet_group" {
+  name       = "wordpress-rds-subnet-group"
+  subnet_ids = [aws_subnet.private_rds.id]
+
+  tags = {
+    Name = "wordpress-rds-subnet-group"
+  }
+}
+
+# -----------------
+# RDS Instance
+# -----------------
+
+resource "aws_db_instance" "wordpress_db" {
+  identifier              = "wordpress-db"
+  engine                  = "mysql"
+  engine_version          = "8.0"
+  instance_class          = "db.t3.micro"
+  allocated_storage       = 20
+
+  db_name                 = "wordpress"
+  username                = "admin"
+  password                = "changeme123!"
+  skip_final_snapshot     = true
+
+  vpc_security_group_ids  = [aws_security_group.rds_sg.id]
+  db_subnet_group_name    = aws_db_subnet_group.rds_subnet_group.name
+
+  publicly_accessible     = false
+
+  tags = {
+    Name = "wordpress-db"
+  }
+}
