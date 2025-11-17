@@ -21,28 +21,23 @@ locals {
 # -----------------
 # VPC
 # -----------------
-
 resource "aws_vpc" "main" {
   cidr_block           = local.vpc_cidr_block
   enable_dns_hostnames = true
   enable_dns_support   = true
 
-  tags = {
-    Name = "wordpress-vpc"
-  }
+  tags = { Name = "wordpress-vpc" }
 }
 
 # -----------------
 # Subnets
 # -----------------
-
 resource "aws_subnet" "public_a" {
   vpc_id                  = aws_vpc.main.id
   cidr_block              = cidrsubnet(local.vpc_cidr_block, local.newbits, 0)
   availability_zone       = "us-east-1a"
   map_public_ip_on_launch = true
-
-  tags = { Name = "public-a" }
+  tags                     = { Name = "public-a" }
 }
 
 resource "aws_subnet" "public_b" {
@@ -50,33 +45,29 @@ resource "aws_subnet" "public_b" {
   cidr_block              = cidrsubnet(local.vpc_cidr_block, local.newbits, 1)
   availability_zone       = "us-east-1b"
   map_public_ip_on_launch = true
-
-  tags = { Name = "public-b" }
+  tags                     = { Name = "public-b" }
 }
 
 resource "aws_subnet" "private_app" {
   vpc_id            = aws_vpc.main.id
   cidr_block        = cidrsubnet(local.vpc_cidr_block, local.newbits, 2)
   availability_zone = "us-east-1c"
-
-  tags = { Name = "private-app" }
+  tags               = { Name = "private-app" }
 }
 
 resource "aws_subnet" "private_rds" {
   vpc_id            = aws_vpc.main.id
   cidr_block        = cidrsubnet(local.vpc_cidr_block, local.newbits, 3)
   availability_zone = "us-east-1d"
-
-  tags = { Name = "private-rds" }
+  tags               = { Name = "private-rds" }
 }
 
 # -----------------
 # Internet Gateway + Route Tables
 # -----------------
-
 resource "aws_internet_gateway" "igw" {
   vpc_id = aws_vpc.main.id
-  tags = { Name = "main-igw" }
+  tags   = { Name = "main-igw" }
 }
 
 resource "aws_route_table" "public" {
@@ -103,7 +94,6 @@ resource "aws_route_table_association" "public_b_assoc" {
 # -----------------
 # Security Groups
 # -----------------
-
 resource "aws_security_group" "ecs_sg" {
   name        = "ecs-wordpress-sg"
   description = "Allow inbound HTTP/HTTPS"
@@ -151,7 +141,6 @@ resource "aws_security_group" "rds_sg" {
 # -----------------
 # RDS Subnet Group + Instance
 # -----------------
-
 resource "aws_db_subnet_group" "rds_subnet_group" {
   name       = "wordpress-rds-subnet-group"
   subnet_ids = [aws_subnet.private_rds.id]
@@ -180,23 +169,25 @@ resource "aws_db_instance" "wordpress_db" {
 # -----------------
 # ECS Cluster
 # -----------------
-
 resource "aws_ecs_cluster" "wp_cluster" {
   name = "wordpress-cluster"
 }
 
 # -----------------
+# ECR Repository for hardened WordPress image
+# -----------------
+resource "aws_ecr_repository" "wp_repo" {
+  name = "wordpress-hardened"
+}
+
+# -----------------
 # Load Balancer (ALB)
 # -----------------
-
 resource "aws_lb" "wp_alb" {
   name               = "wordpress-alb"
   load_balancer_type = "application"
   security_groups    = [aws_security_group.ecs_sg.id]
-  subnets            = [
-    aws_subnet.public_a.id,
-    aws_subnet.public_b.id
-  ]
+  subnets            = [aws_subnet.public_a.id, aws_subnet.public_b.id]
 }
 
 resource "aws_lb_target_group" "wp_tg" {
@@ -205,9 +196,7 @@ resource "aws_lb_target_group" "wp_tg" {
   protocol = "HTTP"
   vpc_id   = aws_vpc.main.id
 
-  health_check {
-    path = "/"
-  }
+  health_check { path = "/" }
 }
 
 resource "aws_lb_listener" "wp_listener" {
@@ -224,7 +213,6 @@ resource "aws_lb_listener" "wp_listener" {
 # -----------------
 # ECS Task Execution Role
 # -----------------
-
 resource "aws_iam_role" "ecs_task_execution_role" {
   name = "ecs-task-execution-role"
 
@@ -232,10 +220,8 @@ resource "aws_iam_role" "ecs_task_execution_role" {
     Version = "2012-10-17",
     Statement = [{
       Effect = "Allow",
-      Principal = {
-        Service = "ecs-tasks.amazonaws.com"
-      },
-      Action = "sts:AssumeRole"
+      Principal = { Service = "ecs-tasks.amazonaws.com" },
+      Action    = "sts:AssumeRole"
     }]
   })
 }
@@ -246,41 +232,126 @@ resource "aws_iam_role_policy_attachment" "ecs_task_execution_policy" {
 }
 
 # -----------------
-# ECS Task Definition (WordPress)
+# EFS for wp-content
 # -----------------
+resource "aws_efs_file_system" "wp_content" {
+  creation_token = "wordpress-wp-content"
+  encrypted      = true
+}
 
+resource "aws_efs_mount_target" "wp_content_a" {
+  file_system_id  = aws_efs_file_system.wp_content.id
+  subnet_id       = aws_subnet.private_app.id
+  security_groups = [aws_security_group.ecs_sg.id]
+}
+
+resource "aws_efs_mount_target" "wp_content_b" {
+  file_system_id  = aws_efs_file_system.wp_content.id
+  subnet_id       = aws_subnet.private_rds.id
+  security_groups = [aws_security_group.ecs_sg.id]
+}
+
+# -----------------
+# ECS Task Definition (Hardened)
+# -----------------
 resource "aws_ecs_task_definition" "wp_task" {
   family                   = "wordpress-task"
   network_mode             = "awsvpc"
   requires_compatibilities = ["FARGATE"]
-  cpu                      = "256"
-  memory                   = "512"
+  cpu                      = "512"
+  memory                   = "1024"
 
   execution_role_arn = aws_iam_role.ecs_task_execution_role.arn
 
+  volume {
+    name = "wp-content"
+    efs_volume_configuration {
+      file_system_id = aws_efs_file_system.wp_content.id
+      root_directory = "/"
+    }
+  }
+
   container_definitions = jsonencode([
     {
-      name  = "wordpress"
-      image = "wordpress:latest"
+      name      = "wordpress"
+      image     = "${aws_ecr_repository.wp_repo.repository_url}:latest"
       essential = true
-      portMappings = [{
-        containerPort = 80
-        protocol      = "tcp"
-      }]
+
+      portMappings = [{ containerPort = 80, protocol = "tcp" }]
+
       environment = [
         { name = "WORDPRESS_DB_HOST", value = aws_db_instance.wordpress_db.address },
         { name = "WORDPRESS_DB_USER", value = "admin" },
         { name = "WORDPRESS_DB_PASSWORD", value = "changeme123!" },
         { name = "WORDPRESS_DB_NAME", value = "wordpress" }
       ]
+
+      mountPoints = [
+        {
+          sourceVolume  = "wp-content"
+          containerPath = "/var/www/html/wp-content"
+          readOnly      = false
+        }
+      ]
+
+      readonlyRootFilesystem = true
+      user                   = "1000"
+      linuxParameters = {
+        capabilities = { drop = ["ALL"] }
+      }
+    },
+    {
+      name      = "init"
+      image     = "amazonlinux:2"
+      essential = false
+      entryPoint = ["sh", "-c"]
+      command    = ["echo 'Init container placeholder - copy configs if needed'"]
+      mountPoints = [
+        {
+          sourceVolume  = "wp-content"
+          containerPath = "/mnt/wp-content"
+          readOnly      = false
+        }
+      ]
     }
   ])
 }
 
 # -----------------
+# Network Load Balancer (NEW)
+# -----------------
+resource "aws_lb" "wp_nlb" {
+  name               = "wordpress-nlb"
+  load_balancer_type = "network"
+  subnets            = [aws_subnet.public_a.id, aws_subnet.public_b.id]
+}
+
+resource "aws_lb_target_group" "wp_nlb_tg" {
+  name        = "wp-nlb-tg"
+  port        = 80
+  protocol    = "TCP"
+  target_type = "ip"
+  vpc_id      = aws_vpc.main.id
+
+  health_check {
+    protocol = "TCP"
+  }
+}
+
+resource "aws_lb_listener" "wp_nlb_listener" {
+  load_balancer_arn = aws_lb.wp_nlb.arn
+  port              = 80
+  protocol          = "TCP"
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.wp_nlb_tg.arn
+  }
+}
+
+# -----------------
 # ECS Service (Fargate)
 # -----------------
-
 resource "aws_ecs_service" "wp_service" {
   name            = "wordpress-service"
   cluster         = aws_ecs_cluster.wp_cluster.id
@@ -300,7 +371,5 @@ resource "aws_ecs_service" "wp_service" {
     container_port   = 80
   }
 
-  depends_on = [
-    aws_lb_listener.wp_listener
-  ]
+  depends_on = [aws_lb_listener.wp_listener]
 }
