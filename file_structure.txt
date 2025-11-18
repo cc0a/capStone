@@ -1,0 +1,29 @@
+terraform/
+│
+├── main.tf                 # High-level project config (providers, terraform block)
+├── variables.tf            # Input variables
+├── outputs.tf              # Outputs (NLB DNS name, DB endpoint, etc.)
+│
+├── networking/
+│   ├── vpc.tf              # VPC + subnets + internet gateway + route tables
+│   ├── security_groups.tf  # ECS SG, RDS SG, etc.
+│
+├── load_balancer/
+│   ├── nlb.tf              # Network Load Balancer + listener + target group
+│
+├── rds/
+│   ├── rds.tf              # DB subnet group + RDS instance
+│
+├── ecs/
+│   ├── ecs_cluster.tf      # ECS cluster
+│   ├── ecs_roles.tf        # IAM execution role
+│   ├── ecs_task.tf         # ECS task definition (hardened image)
+│   ├── ecs_service.tf      # ECS service + load balancing
+│
+├── ecr/
+│   ├── ecr.tf              # ECR repository for hardened WP image
+│
+├── efs/
+│   ├── efs.tf              # EFS filesystem + mount targets
+│
+└── versions.tf             # Provider + required_versions

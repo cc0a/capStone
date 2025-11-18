@@ -352,6 +352,7 @@ resource "aws_lb_listener" "wp_nlb_listener" {
 # -----------------
 # ECS Service (Fargate)
 # -----------------
+
 resource "aws_ecs_service" "wp_service" {
   name            = "wordpress-service"
   cluster         = aws_ecs_cluster.wp_cluster.id
@@ -373,3 +374,94 @@ resource "aws_ecs_service" "wp_service" {
 
   depends_on = [aws_lb_listener.wp_listener]
 }
+
+# -----------------
+# AWS WAF (WAFv2)
+# -----------------
+resource "aws_wafv2_web_acl" "wp_waf" {
+  name        = "wordpress-waf"
+  description = "WAF for WordPress ALB"
+  scope       = "REGIONAL"
+
+  default_action {
+    allow {}
+  }
+
+  visibility_config {
+    cloudwatch_metrics_enabled = true
+    metric_name                = "wordpress-waf"
+    sampled_requests_enabled   = true
+  }
+
+  rule {
+    name     = "AWS-AWSManagedRulesCommonRuleSet"
+    priority = 1
+
+    override_action {
+      none {}
+    }
+
+    statement {
+      managed_rule_group_statement {
+        name        = "AWSManagedRulesCommonRuleSet"
+        vendor_name = "AWS"
+      }
+    }
+
+    visibility_config {
+      cloudwatch_metrics_enabled = true
+      sampled_requests_enabled   = true
+      metric_name                = "common-rules"
+    }
+  }
+
+  rule {
+    name     = "AWS-AWSManagedRulesSQLiRuleSet"
+    priority = 2
+
+    override_action {
+      none {}
+    }
+
+    statement {
+      managed_rule_group_statement {
+        name        = "AWSManagedRulesSQLiRuleSet"
+        vendor_name = "AWS"
+      }
+    }
+
+    visibility_config {
+      cloudwatch_metrics_enabled = true
+      sampled_requests_enabled   = true
+      metric_name                = "sqli-rules"
+    }
+  }
+
+  rule {
+    name     = "AWS-AWSManagedRulesKnownBadInputsRuleSet"
+    priority = 3
+
+    override_action {
+      none {}
+    }
+
+    statement {
+      managed_rule_group_statement {
+        name        = "AWSManagedRulesKnownBadInputsRuleSet"
+        vendor_name = "AWS"
+      }
+    }
+
+    visibility_config {
+      cloudwatch_metrics_enabled = true
+      sampled_requests_enabled   = true
+      metric_name                = "bad-inputs-rules"
+    }
+  }
+}
+
+resource "aws_wafv2_web_acl_association" "wp_waf_alb_assoc" {
+  resource_arn = aws_lb.wp_alb.arn
+  web_acl_arn  = aws_wafv2_web_acl.wp_waf.arn
+}
+
