@@ -465,3 +465,70 @@ resource "aws_wafv2_web_acl_association" "wp_waf_alb_assoc" {
   web_acl_arn  = aws_wafv2_web_acl.wp_waf.arn
 }
 
+resource "aws_iam_role" "rds_snapshot_lambda_role" {
+  name = "rds-snapshot-lambda-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [{
+      Effect = "Allow",
+      Principal = { Service = "lambda.amazonaws.com" },
+      Action    = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "rds_snapshot_lambda_policy" {
+  name = "rds-snapshot-lambda-policy"
+  role = aws_iam_role.rds_snapshot_lambda_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [
+      {
+        Effect = "Allow",
+        Action = [
+          "rds:CreateDBSnapshot",
+          "rds:DescribeDBInstances"
+        ],
+        Resource = "*"
+      },
+      {
+        Effect = "Allow",
+        Action = [
+          "logs:CreateLogGroup",
+          "logs:CreateLogStream",
+          "logs:PutLogEvents"
+        ],
+        Resource = "*"
+      }
+    ]
+  })
+}
+
+resource "aws_lambda_function" "rds_snapshot_lambda" {
+  filename         = "rds_snapshot_lambda.zip"   # You will create this zip
+  function_name    = "wordpress-db-snapshot-lambda"
+  handler          = "lambda_function.lambda_handler"
+  runtime          = "python3.10"
+  role             = aws_iam_role.rds_snapshot_lambda_role.arn
+}
+
+resource "aws_cloudwatch_event_rule" "rds_snapshot_rule" {
+  name                = "wordpress-db-snapshot-every-30-days"
+  schedule_expression = "rate(30 days)"
+}
+
+resource "aws_cloudwatch_event_target" "rds_snapshot_target" {
+  rule      = aws_cloudwatch_event_rule.rds_snapshot_rule.name
+  target_id = "rdsSnapshotLambda"
+  arn       = aws_lambda_function.rds_snapshot_lambda.arn
+}
+
+resource "aws_lambda_permission" "allow_eventbridge" {
+  statement_id  = "AllowExecutionFromEventBridge"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.rds_snapshot_lambda.function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.rds_snapshot_rule.arn
+}
