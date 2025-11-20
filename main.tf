@@ -506,6 +506,10 @@ resource "aws_iam_role_policy" "rds_snapshot_lambda_policy" {
   })
 }
 
+# -----------------
+# RDS Logs
+# -----------------
+
 resource "aws_lambda_function" "rds_snapshot_lambda" {
   filename         = "rds_snapshot_lambda.zip"   # You will create this zip
   function_name    = "wordpress-db-snapshot-lambda"
@@ -531,4 +535,43 @@ resource "aws_lambda_permission" "allow_eventbridge" {
   function_name = aws_lambda_function.rds_snapshot_lambda.function_name
   principal     = "events.amazonaws.com"
   source_arn    = aws_cloudwatch_event_rule.rds_snapshot_rule.arn
+}
+
+# -----------------
+# VPC Flow Logs to S3
+# -----------------
+
+resource "aws_s3_bucket" "vpc_logs" {
+  bucket = "my-vpc-flow-logs-bucket-12345"  # must be globally unique
+
+  tags = {
+    Name = "vpc-flow-logs"
+  }
+}
+
+resource "aws_s3_bucket_lifecycle_configuration" "vpc_flow_logs" {
+  bucket = aws_s3_bucket.vpc_logs.id
+
+  rule {
+    id     = "transition-and-expire"
+    status = "Enabled"
+
+    filter {
+      prefix = "AWSLogs/"
+    }
+
+    transition {
+      days          = 30
+      storage_class = "STANDARD_IA"
+    }
+
+    transition {
+      days          = 90
+      storage_class = "DEEP_ARCHIVE"
+    }
+
+    expiration {
+      days = 365
+    }
+  }
 }
