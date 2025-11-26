@@ -1,0 +1,26 @@
+4. Admin Panel Exploitation
+
+Visit /wp-admin/admin.php?page=security-demo and use the forms to execute commands.
+AWS Integration Points
+
+    CloudWatch Logs - Send JSON logs to CloudWatch
+
+    S3 Buckets - Store detailed attack payloads
+
+    Lambda - Process and alert on critical events
+
+    SNS - Send real-time alerts
+
+    CloudTrail - Monitor API calls
+
+Security Considerations for Your Demo
+
+    Use in isolated VM/container only
+
+    No internet access from test environment
+
+    Monitor all outbound connections
+
+    Destroy environment after demo
+
+    Document this is for educational purposes only
