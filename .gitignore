@@ -31,3 +31,4 @@ override.tf.json
 # OS files
 .DS_Store
 Thumbs.db
+variables.tf
