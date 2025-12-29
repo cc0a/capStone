@@ -32,3 +32,4 @@ override.tf.json
 .DS_Store
 Thumbs.db
 variables.tf
+terraform.tfvars
