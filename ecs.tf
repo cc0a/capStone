@@ -1,8 +1,13 @@
-# 
-resource "aws_ecr_repository" "wp_repo" {
-  name = "wordpress-hardened"
+############################################
+# ECS CLUSTER
+############################################
+resource "aws_ecs_cluster" "wp_cluster" {
+  name = "wordpress-cluster"
 }
 
+############################################
+# ECS TASK EXECUTION ROLE
+############################################
 resource "aws_iam_role" "ecs_exec" {
   name = "ecs-task-exec"
 
@@ -21,6 +26,9 @@ resource "aws_iam_role_policy_attachment" "ecs_exec_attach" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
+############################################
+# ECS TASK DEFINITION
+############################################
 resource "aws_ecs_task_definition" "wp_task" {
   family                   = "wordpress"
   network_mode             = "awsvpc"
@@ -41,7 +49,7 @@ resource "aws_ecs_task_definition" "wp_task" {
   container_definitions = jsonencode([
     {
       name      = "wordpress"
-      image     = "${aws_ecr_repository.wp_repo.repository_url}:latest"
+      image     = "wordpress:latest"
       essential = true
 
       portMappings = [{ containerPort = 80 }]
@@ -49,7 +57,7 @@ resource "aws_ecs_task_definition" "wp_task" {
       environment = [
         { name = "WORDPRESS_DB_HOST", value = aws_db_instance.wordpress_db.address },
         { name = "WORDPRESS_DB_USER", value = "admin" },
-        { name = "WORDPRESS_DB_PASSWORD", value = "changeme123!" },
+        { name = "WORDPRESS_DB_PASSWORD", value = var.db_password },
         { name = "WORDPRESS_DB_NAME", value = "wordpress" }
       ]
 
@@ -64,6 +72,9 @@ resource "aws_ecs_task_definition" "wp_task" {
   ])
 }
 
+############################################
+# ECS SERVICE
+############################################
 resource "aws_ecs_service" "wp_service" {
   name            = "wordpress-service"
   cluster         = aws_ecs_cluster.wp_cluster.id
@@ -72,7 +83,7 @@ resource "aws_ecs_service" "wp_service" {
   launch_type     = "FARGATE"
 
   network_configuration {
-    subnets         = [aws_subnet.private_app_a.id, aws_subnet.private_app_b.id]
+    subnets         = [for subnet in aws_subnet.private_app : subnet.id]
     security_groups = [aws_security_group.ecs_sg.id]
   }
 

@@ -1,89 +1,86 @@
-# resource "aws_ecs_cluster" "wp_cluster" {
-#   name = "wordpress-cluster"
-# }
+############################################
+# SECURITY GROUP FOR ALB
+############################################
+resource "aws_security_group" "lb_sg" {
+  name        = "wordpress-lb-sg"
+  description = "Allow HTTP traffic"
+  vpc_id      = aws_vpc.main.id
 
-# resource "aws_ecr_repository" "wp_repo" {
-#   name = "wordpress-hardened"
-# }
+  ingress {
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
 
-# resource "aws_iam_role" "ecs_exec" {
-#   name = "ecs-task-exec"
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
 
-#   assume_role_policy = jsonencode({
-#     Version = "2012-10-17"
-#     Statement = [{
-#       Effect = "Allow"
-#       Principal = { Service = "ecs-tasks.amazonaws.com" }
-#       Action    = "sts:AssumeRole"
-#     }]
-#   })
-# }
+  tags = {
+    Name = "wordpress-lb-sg"
+  }
+}
 
-# resource "aws_iam_role_policy_attachment" "ecs_exec_attach" {
-#   role       = aws_iam_role.ecs_exec.name
-#   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
-# }
+############################################
+# APPLICATION LOAD BALANCER
+############################################
+resource "aws_lb" "wp_lb" {
+  name               = "wordpress-alb"
+  internal           = false
+  load_balancer_type = "application"
+  
+  # Use multi-AZ public subnets
+  subnets = [
+    aws_subnet.public["us-east-1a"].id,
+    aws_subnet.public["us-east-1b"].id
+  ]
 
-# resource "aws_ecs_task_definition" "wp_task" {
-#   family                   = "wordpress"
-#   network_mode             = "awsvpc"
-#   requires_compatibilities = ["FARGATE"]
-#   cpu                      = "512"
-#   memory                   = "1024"
+  security_groups = [aws_security_group.lb_sg.id]
 
-#   execution_role_arn = aws_iam_role.ecs_exec.arn
+  tags = {
+    Name = "wordpress-alb"
+  }
+}
 
-#   volume {
-#     name = "wp-content"
-#     efs_volume_configuration {
-#       file_system_id = aws_efs_file_system.wp.id
-#       root_directory = "/"
-#     }
-#   }
+############################################
+# TARGET GROUP
+############################################
+resource "aws_lb_target_group" "wp_tg" {
+  name     = "wordpress-tg"
+  port     = 80
+  protocol = "HTTP"
+  vpc_id   = aws_vpc.main.id
+  target_type = "ip"
 
-#   container_definitions = jsonencode([
-#     {
-#       name      = "wordpress"
-#       image     = "${aws_ecr_repository.wp_repo.repository_url}:latest"
-#       essential = true
+  health_check {
+    path                = "/"
+    interval            = 30
+    timeout             = 5
+    healthy_threshold   = 2
+    unhealthy_threshold = 2
+    matcher             = "200-399"
+  }
 
-#       portMappings = [{ containerPort = 80 }]
+  tags = {
+    Name = "wordpress-tg"
+  }
+}
 
-#       environment = [
-#         { name = "WORDPRESS_DB_HOST", value = aws_db_instance.wordpress_db.address },
-#         { name = "WORDPRESS_DB_USER", value = "admin" },
-#         { name = "WORDPRESS_DB_PASSWORD", value = "changeme123!" },
-#         { name = "WORDPRESS_DB_NAME", value = "wordpress" }
-#       ]
+############################################
+# LISTENER
+############################################
+resource "aws_lb_listener" "wp_listener" {
+  load_balancer_arn = aws_lb.wp_lb.arn
+  port              = 80
+  protocol          = "HTTP"
 
-#       mountPoints = [{
-#         sourceVolume  = "wp-content"
-#         containerPath = "/var/www/html/wp-content"
-#       }]
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.wp_tg.arn
+  }
+}
 
-#       readonlyRootFilesystem = true
-#       user = "1000"
-#     }
-#   ])
-# }
-
-# resource "aws_ecs_service" "wp_service" {
-#   name            = "wordpress-service"
-#   cluster         = aws_ecs_cluster.wp_cluster.id
-#   task_definition = aws_ecs_task_definition.wp_task.arn
-#   desired_count   = 1
-#   launch_type     = "FARGATE"
-
-#   network_configuration {
-#     subnets         = [aws_subnet.private_app_a.id, aws_subnet.private_app_b.id]
-#     security_groups = [aws_security_group.ecs_sg.id]
-#   }
-
-#   load_balancer {
-#     target_group_arn = aws_lb_target_group.wp_tg.arn
-#     container_name   = "wordpress"
-#     container_port   = 80
-#   }
-
-#   depends_on = [aws_lb_listener.wp_listener]
-# }

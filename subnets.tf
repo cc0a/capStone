@@ -1,77 +1,104 @@
-# PUBLIC SUBNETS
-resource "aws_subnet" "public_a" {
-  vpc_id                  = aws_vpc.main.id
-  cidr_block              = cidrsubnet(local.vpc_cidr_block, local.newbits, 0)
-  availability_zone       = "us-east-1a"
-  map_public_ip_on_launch = true
-  tags = { Name = "public-a" }
+locals {
+  azs = ["us-east-1a", "us-east-1b"]
 }
 
-resource "aws_subnet" "public_b" {
+# PUBLIC SUBNETS
+resource "aws_subnet" "public" {
+  for_each = toset(local.azs)
+
   vpc_id                  = aws_vpc.main.id
-  cidr_block              = cidrsubnet(local.vpc_cidr_block, local.newbits, 1)
-  availability_zone       = "us-east-1b"
+  availability_zone       = each.value
+  cidr_block              = cidrsubnet(local.vpc_cidr_block, 8, index(local.azs, each.value))
   map_public_ip_on_launch = true
-  tags = { Name = "public-b" }
+
+  tags = {
+    Name = "public-${each.value}"
+    Tier = "public"
+  }
 }
 
 # PRIVATE APP SUBNETS
-resource "aws_subnet" "private_app_a" {
-  vpc_id            = aws_vpc.main.id
-  cidr_block        = cidrsubnet(local.vpc_cidr_block, local.newbits, 2)
-  availability_zone = "us-east-1a"
-  tags = { Name = "private-app-a" }
-}
+resource "aws_subnet" "private_app" {
+  for_each = toset(local.azs)
 
-resource "aws_subnet" "private_app_b" {
   vpc_id            = aws_vpc.main.id
-  cidr_block        = cidrsubnet(local.vpc_cidr_block, local.newbits, 3)
-  availability_zone = "us-east-1b"
-  tags = { Name = "private-app-b" }
+  availability_zone = each.value
+  cidr_block        = cidrsubnet(local.vpc_cidr_block, 8, index(local.azs, each.value) + 10)
+
+  tags = {
+    Name = "private-app-${each.value}"
+    Tier = "private"
+  }
 }
 
 # PRIVATE RDS SUBNETS
-resource "aws_subnet" "private_rds_a" {
+resource "aws_subnet" "private_rds" {
+  for_each = toset(local.azs)
+
   vpc_id            = aws_vpc.main.id
-  cidr_block        = cidrsubnet(local.vpc_cidr_block, local.newbits, 4)
-  availability_zone = "us-east-1c"
-  tags = { Name = "private-rds-a" }
+  availability_zone = each.value
+  cidr_block        = cidrsubnet(local.vpc_cidr_block, 8, index(local.azs, each.value) + 20)
+
+  tags = {
+    Name = "private-rds-${each.value}"
+    Tier = "private"
+  }
 }
 
-resource "aws_subnet" "private_rds_b" {
-  vpc_id            = aws_vpc.main.id
-  cidr_block        = cidrsubnet(local.vpc_cidr_block, local.newbits, 5)
-  availability_zone = "us-east-1d"
-  tags = { Name = "private-rds-b" }
+# PUBLIC ROUTE TABLE
+resource "aws_route_table" "public" {
+  vpc_id = aws_vpc.main.id
+
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.igw.id
+  }
+
+  tags = { Name = "public-rt" }
 }
 
-# ROUTE TABLE ASSOCIATIONS
-resource "aws_route_table_association" "public_a" {
+resource "aws_route_table_association" "public" {
+  for_each       = aws_subnet.public
+  subnet_id      = each.value.id
   route_table_id = aws_route_table.public.id
-  subnet_id      = aws_subnet.public_a.id
 }
 
-resource "aws_route_table_association" "public_b" {
-  route_table_id = aws_route_table.public.id
-  subnet_id      = aws_subnet.public_b.id
+# NAT GATEWAYS (ONE PER PUBLIC SUBNET)
+resource "aws_eip" "nat" {
+  for_each = aws_subnet.public
+  domain   = "vpc"
 }
 
-resource "aws_route_table_association" "private_app_a" {
-  subnet_id      = aws_subnet.private_app_a.id
-  route_table_id = aws_route_table.private.id
+resource "aws_nat_gateway" "nat" {
+  for_each     = aws_subnet.public
+  allocation_id = aws_eip.nat[each.key].id
+  subnet_id     = each.value.id
+
+  tags = { Name = "nat-${each.key}" }
 }
 
-resource "aws_route_table_association" "private_app_b" {
-  subnet_id      = aws_subnet.private_app_b.id
-  route_table_id = aws_route_table.private.id
+# PRIVATE ROUTE TABLES (ONE PER AZ)
+resource "aws_route_table" "private" {
+  for_each = aws_nat_gateway.nat
+
+  vpc_id = aws_vpc.main.id
+
+  route {
+    cidr_block     = "0.0.0.0/0"
+    nat_gateway_id = each.value.id
+  }
+
+  tags = { Name = "private-rt-${each.key}" }
 }
 
-resource "aws_route_table_association" "private_rds_a" {
-  subnet_id      = aws_subnet.private_rds_a.id
-  route_table_id = aws_route_table.private.id
+resource "aws_route_table_association" "private_app" {
+  for_each       = aws_subnet.private_app
+  subnet_id      = each.value.id
+  route_table_id = aws_route_table.private[each.key].id
 }
 
-resource "aws_route_table_association" "private_rds_b" {
-  subnet_id      = aws_subnet.private_rds_b.id
-  route_table_id = aws_route_table.private.id
+resource "aws_route_table_association" "private_rds" {
+  for_each       = aws_subnet.private_rds
+  subnet_id      = each.value.id
+  route_table_id = aws_route_table.private[each.key].id
 }
