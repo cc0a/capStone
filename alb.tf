@@ -3,7 +3,7 @@
 ############################################
 resource "aws_security_group" "lb_sg" {
   name        = "wordpress-lb-sg"
-  description = "Allow HTTP traffic"
+  description = "Allow HTTP traffic to ALB"
   vpc_id      = aws_vpc.main.id
 
   ingress {
@@ -32,8 +32,8 @@ resource "aws_lb" "wp_lb" {
   name               = "wordpress-alb"
   internal           = false
   load_balancer_type = "application"
-  
-  # Use multi-AZ public subnets
+
+  # Public subnets ONLY
   subnets = [
     aws_subnet.public["us-east-1a"].id,
     aws_subnet.public["us-east-1b"].id
@@ -50,18 +50,19 @@ resource "aws_lb" "wp_lb" {
 # TARGET GROUP
 ############################################
 resource "aws_lb_target_group" "wp_tg" {
-  name     = "wordpress-tg"
-  port     = 80
-  protocol = "HTTP"
-  vpc_id   = aws_vpc.main.id
+  name        = "wordpress-tg"
+  port        = 80
+  protocol    = "HTTP"
+  vpc_id      = aws_vpc.main.id
   target_type = "ip"
 
   health_check {
     path                = "/"
-    interval            = 30
-    timeout             = 5
-    healthy_threshold   = 2
-    unhealthy_threshold = 2
+    port               = 80
+    interval            = 15
+    timeout             = 10
+    healthy_threshold   = 3
+    unhealthy_threshold = 3
     matcher             = "200-399"
   }
 
@@ -83,4 +84,3 @@ resource "aws_lb_listener" "wp_listener" {
     target_group_arn = aws_lb_target_group.wp_tg.arn
   }
 }
-
