@@ -1,5 +1,5 @@
 resource "aws_s3_bucket" "vpc_logs" {
-  bucket = "my-vpc-flow-logs-bucket-12345"
+  bucket = "my-vpc-flow-logs-bucket-123458878"
 }
 
 resource "aws_s3_bucket_lifecycle_configuration" "vpc_logs" {
@@ -9,16 +9,24 @@ resource "aws_s3_bucket_lifecycle_configuration" "vpc_logs" {
     id     = "logs"
     status = "Enabled"
 
-transition {
-  days          = 30
-  storage_class = "STANDARD_IA"
-}
+    # Apply to all objects
+    filter {
+      prefix = ""
+    }
 
-transition {
-  days          = 90
-  storage_class = "DEEP_ARCHIVE"
-}
+    # Multiple transitions must use `transition` blocks (one per transition)
+    transition {
+      days          = 30
+      storage_class = "STANDARD_IA"
+    }
 
-    expiration { days = 365 }
+    transition {
+      days          = 90
+      storage_class = "DEEP_ARCHIVE"
+    }
+
+    expiration {
+      days = 365
+    }
   }
-}
+}  

@@ -1,34 +1,15 @@
 ############################################
+# ECR REPO
+############################################
+resource "aws_ecr_repository" "wordpress" {
+  name = "wordpress-app"
+}
+
+############################################
 # ECS CLUSTER
 ############################################
 resource "aws_ecs_cluster" "wp_cluster" {
   name = "wordpress-cluster"
-}
-
-############################################
-# EFS ACCESS POINT
-############################################
-resource "aws_efs_access_point" "wp" {
-  file_system_id = aws_efs_file_system.wp.id
-
-  posix_user {
-    uid = 33
-    gid = 33
-  }
-
-  root_directory {
-    path = "/wp-content"
-
-    creation_info {
-      owner_uid   = 33
-      owner_gid   = 33
-      permissions = "0755"
-    }
-  }
-
-  tags = {
-    Name = "wordpress-efs-access-point"
-  }
 }
 
 ############################################
@@ -53,7 +34,7 @@ resource "aws_iam_role_policy_attachment" "ecs_task_execution_policy" {
 }
 
 ############################################
-# ECS TASK ROLE (for EFS IAM access)
+# ECS TASK ROLE (optional, minimal)
 ############################################
 resource "aws_iam_role" "ecs_task_role" {
   name = "ecs-task-role"
@@ -66,11 +47,6 @@ resource "aws_iam_role" "ecs_task_role" {
       Action    = "sts:AssumeRole"
     }]
   })
-}
-
-resource "aws_iam_role_policy_attachment" "ecs_task_efs_access" {
-  role       = aws_iam_role.ecs_task_role.name
-  policy_arn = "arn:aws:iam::aws:policy/AmazonElasticFileSystemClientFullAccess"
 }
 
 ############################################
@@ -92,24 +68,7 @@ resource "aws_ecs_task_definition" "wordpress" {
   memory                   = "1024"
 
   execution_role_arn = aws_iam_role.ecs_task_execution.arn
-  task_role_arn      = aws_iam_role.ecs_task_role.arn   # <-- Task role required for EFS IAM
-
-  ##########################################
-  # EFS VOLUME CONFIG
-  ##########################################
-  volume {
-    name = "wp-content"
-
-    efs_volume_configuration {
-      file_system_id     = aws_efs_file_system.wp.id
-      transit_encryption = "ENABLED"   # <-- Required with IAM authorization
-
-      authorization_config {
-        access_point_id = aws_efs_access_point.wp.id
-        iam             = "ENABLED"
-      }
-    }
-  }
+  task_role_arn      = aws_iam_role.ecs_task_role.arn
 
   ##########################################
   # CONTAINER DEFINITION
@@ -117,41 +76,18 @@ resource "aws_ecs_task_definition" "wordpress" {
   container_definitions = jsonencode([
     {
       name      = "wordpress"
-      image     = "wordpress:latest"
+      image     = "${aws_ecr_repository.wordpress.repository_url}:latest"
       essential = true
 
       portMappings = [
-        {
-          containerPort = 80
-          protocol      = "tcp"
-        }
+        { containerPort = 80, protocol = "tcp" }
       ]
 
       environment = [
-        {
-          name  = "WORDPRESS_DB_HOST"
-          value = aws_db_instance.wordpress_db.address
-        },
-        {
-          name  = "WORDPRESS_DB_USER"
-          value = "admin"
-        },
-        {
-          name  = "WORDPRESS_DB_PASSWORD"
-          value = var.db_password
-        },
-        {
-          name  = "WORDPRESS_DB_NAME"
-          value = "wordpress"
-        }
-      ]
-
-      mountPoints = [
-        {
-          sourceVolume  = "wp-content"
-          containerPath = "/var/www/html/wp-content"
-          readOnly      = false
-        }
+        { name = "WORDPRESS_DB_HOST", value = aws_db_instance.wordpress_db.address },
+        { name = "WORDPRESS_DB_USER", value = "admin" },
+        { name = "WORDPRESS_DB_PASSWORD", value = var.db_password },
+        { name = "WORDPRESS_DB_NAME", value = "wordpress" }
       ]
 
       logConfiguration = {
@@ -179,7 +115,7 @@ resource "aws_ecs_service" "wordpress" {
   network_configuration {
     subnets         = [for subnet in aws_subnet.private_app : subnet.id]
     security_groups = [aws_security_group.ecs_sg.id]
-    assign_public_ip = false
+    assign_public_ip = true
   }
 
   load_balancer {
