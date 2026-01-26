@@ -33,3 +33,4 @@ override.tf.json
 Thumbs.db
 variables.tf
 terraform.tfvars
+notes.txt
